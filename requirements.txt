@@ -1,0 +1,2 @@
+# Root requirements for Vercel Python runtime (mirrors backend/)
+-r backend/requirements.txt

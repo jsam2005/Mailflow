@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mailflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mailflow_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-mailflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mailflow} -d ${POSTGRES_DB:-mailflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mailflow-backend
+    env_file:
+      - .env
+    environment:
+      # Always use the compose service hostname inside the container (host .env may use localhost).
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-mailflow}:${POSTGRES_PASSWORD:-mailflow_secret}@postgres:5432/${POSTGRES_DB:-mailflow}
+      STORAGE_PATH: /app/storage
+    volumes:
+      - mailflow_storage:/app/storage
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: mailflow-frontend
+    environment:
+      # Proxy API calls through Vite to the backend service on the compose network
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mailflow_storage:
+  frontend_node_modules:

@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-surface-muted text-ink font-sans;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-surface-border bg-surface shadow-card;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-surface-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-surface-border bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15;
+  }
+
+  .ProseMirror p.is-editor-empty:first-child::before {
+    @apply pointer-events-none float-left h-0 text-ink-subtle;
+    content: attr(data-placeholder);
+  }
+
+  .ProseMirror img {
+    @apply my-2 max-w-full rounded;
+  }
+}

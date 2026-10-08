@@ -1,0 +1,7 @@
+Mail ID,Contact Person,Business Name,Mobile,City,Industry
+arun@example.com,Arun Kumar,ABC Ltd,9876543210,Chennai,Construction
+priya@example.com,Priya R,"Studio ""XYZ"", Inc",9876543211,Bengaluru,Design
+bad@,Bad Email,Nope,,X,Y
+,Missing,None,,,
+arun@example.com,Arun Dup,Dup Co,,Madurai,Retail
+  JOHN@EXAMPLE.COM ,John Smith,Acme,111,Coimbatore,Tech
