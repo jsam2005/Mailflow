@@ -116,20 +116,22 @@ Summary:
 
 1. External PostgreSQL (Neon) + SSL / pooled URL
 2. Object storage (`STORAGE_PROVIDER=vercel_blob`)
-3. Vercel project with `vercel.json` (SPA + `/api` + cron)
+3. Vercel project with `vercel.json` (SPA + `/api`; no Hobby cron schedule)
 4. Set production env vars (no defaults, no localhost DB)
 5. `alembic upgrade head` once (not per request)
 6. `python -m app.scripts.create_admin` (no default password)
 7. Production Google OAuth callback HTTPS URL
-8. Keep `CAMPAIGN_SENDING_ENABLED=false` until smoke tests pass
-9. Cron hits `/api/v1/internal/workers/campaign-send` with `CRON_SECRET`
+8. Keep `CAMPAIGN_SENDING_ENABLED=false` on Hobby (automatic campaign delivery needs frequent worker invocations)
 
 Production must use:
 
 ```env
 ENVIRONMENT=production
 ENABLE_LOCAL_SCHEDULER=false
+CAMPAIGN_SENDING_ENABLED=false
 ```
+
+Vercel Hobby only allows daily crons, which is unsuitable for MailFlow sending. The worker endpoint stays for a future external scheduler — see [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md).
 
 ---
 
@@ -139,7 +141,7 @@ ENABLE_LOCAL_SCHEDULER=false
 - **Backend:** FastAPI, SQLAlchemy, Alembic, JWT (Argon2/bcrypt passwords)
 - **Database:** PostgreSQL
 - **Storage:** `StorageProvider` — local (dev) or Vercel Blob (prod)
-- **Workers:** APScheduler in development; Vercel Cron + DB queue in production
+- **Workers:** APScheduler in development; protected HTTP batch worker in production (external scheduler when available; not Vercel Hobby cron)
 
 ## Docs
 

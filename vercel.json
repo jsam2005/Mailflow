@@ -19,11 +19,5 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/v1/internal/workers/campaign-send",
-      "schedule": "*/5 * * * *"
-    }
   ]
 }

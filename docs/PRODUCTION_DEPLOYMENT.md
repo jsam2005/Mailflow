@@ -1,6 +1,4 @@
-# Production deployment (prepare now — deploy in next phase)
-
-Do **not** deploy until the deployment phase starts. This document is the checklist.
+# Production deployment
 
 ## Architecture
 
@@ -8,20 +6,32 @@ Do **not** deploy until the deployment phase starts. This document is the checkl
 - **Backend:** FastAPI via Vercel Python (`/api/*`)
 - **Database:** External PostgreSQL (Neon recommended)
 - **Files:** `STORAGE_PROVIDER=vercel_blob` (not local disk)
-- **Worker:** Vercel Cron → `GET /api/v1/internal/workers/campaign-send`
-  - Set env `CRON_SECRET` (min 32 chars). Vercel Cron automatically sends
-    `Authorization: Bearer <CRON_SECRET>` when that variable is present.
-  - The endpoint rejects missing/invalid secrets with 401. Never put the secret in the URL.
 - **Auth model:** Private admin-only app (no public registration). Create admin with CLI.
+
+## Campaign worker on Vercel Hobby
+
+Vercel Hobby only supports **daily** cron execution. MailFlow campaign delivery needs more frequent processing (minutes, not once per day), so **automatic campaign delivery is disabled** in the initial free deployment.
+
+- `vercel.json` does **not** register a cron schedule (Hobby rejects `*/5 * * * *`).
+- Keep `ENABLE_LOCAL_SCHEDULER=false` and `CAMPAIGN_SENDING_ENABLED=false` on Hobby.
+- The protected worker endpoint remains available for a future external scheduler or always-on worker:
+
+  `GET|POST /api/v1/internal/workers/campaign-send`
+
+  Authenticate with `Authorization: Bearer <CRON_SECRET>` (min 32 characters). Never put the secret in the URL.
+
+Do **not** use a daily Hobby cron as a workaround — it is not suitable for MailFlow send pacing.
+
+When you move to a plan or host that can invoke the worker every few minutes, point that scheduler at the same endpoint with `CRON_SECRET`, then enable sending carefully (allowlist first).
 
 ## Sequence
 
-1. Create Neon PostgreSQL (enable SSL; prefer pooled connection string).
+1. Create Neon PostgreSQL (enable SSL; prefer pooled connection string for the app).
 2. Create Vercel Blob store; copy `BLOB_READ_WRITE_TOKEN`.
-3. Create Vercel project from this repo (do not deploy yet until phase starts).
+3. Create one Vercel project from this repo (`vercel.json` builds frontend + routes `/api` to FastAPI).
 4. Set env vars from `.env.production.example` (never commit secrets).
-5. Deploy.
-6. Run migrations **once** against production DB (from CI or secure local machine):
+5. Deploy with `CAMPAIGN_SENDING_ENABLED=false`.
+6. Run migrations **once** against production DB (from a trusted local machine; use the **direct** Neon URL, not the pooler):
 
    ```bash
    cd backend
@@ -47,9 +57,7 @@ Do **not** deploy until the deployment phase starts. This document is the checkl
    curl https://YOUR_DOMAIN/api/v1/health
    ```
 
-10. Login → Connect Gmail → Send test email → one-recipient campaign.
-11. Confirm cron runs (Vercel → Crons) and worker health.
-12. Set `CAMPAIGN_SENDING_ENABLED=true` only after single-email success.
+10. Login → Connect Gmail → Send test email (manual test send; campaign queue automation stays off on Hobby).
 
 ## Database backups
 
