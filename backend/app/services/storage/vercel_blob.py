@@ -33,6 +33,8 @@ class VercelBlobStorageProvider(StorageProvider):
         headers = {
             **self._headers(),
             "x-vercel-blob-pathname": cleaned,
+            # Store is private; public access is rejected by the Blob API.
+            "x-vercel-blob-access": "private",
         }
         if content_type:
             headers["Content-Type"] = content_type

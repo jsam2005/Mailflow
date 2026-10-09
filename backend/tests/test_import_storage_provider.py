@@ -101,6 +101,41 @@ def test_import_upload_uses_injected_storage(
     assert stored.read_bytes().startswith(b"email")
 
 
+def test_vercel_blob_save_sets_private_access(monkeypatch) -> None:
+    from app.services.storage import vercel_blob as vb
+
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"url": "https://example.private.blob.vercel-storage.com/imports/a.csv", "pathname": "imports/a.csv"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def put(self, url, content=None, headers=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["content"] = content
+            return FakeResponse()
+
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "test-token")
+    monkeypatch.setattr(vb.httpx, "Client", FakeClient)
+    provider = vb.VercelBlobStorageProvider(token="test-token")
+    key = provider.save_import_file(b"email\na@b.com\n", "csv")
+    assert captured["headers"]["x-vercel-blob-access"] == "private"
+    assert key.startswith("https://")
+
+
 def test_blob_save_failure_returns_safe_error(
     client: TestClient,
     auth_headers: dict[str, str],
