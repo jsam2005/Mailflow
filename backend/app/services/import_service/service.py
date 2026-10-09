@@ -235,8 +235,10 @@ class ImportService:
         status = self._status_value(session.status)
         if status == ImportSessionStatus.CANCELLED.value:
             raise ValidationAppError("This import was cancelled.")
-        if status == ImportSessionStatus.COMPLETED.value:
+        if status == ImportSessionStatus.COMPLETED.value or (session.imported_rows or 0) > 0:
             raise ValidationAppError("This import has already been completed.")
+        if status == ImportSessionStatus.IMPORTING.value:
+            raise ValidationAppError("This import is already in progress.")
 
         contact_list = self.list_service.get_contact_list(user, contact_list_id)
         mapping = column_mapping or session.column_mapping or {}
@@ -249,6 +251,11 @@ class ImportService:
         result = self.validator.validate_rows(rows, mapping, contact_list_id)
 
         if result.importable_rows == 0:
+            # Concurrent/double execute must not downgrade a completed session.
+            self.db.refresh(session)
+            current = self._status_value(session.status)
+            if current == ImportSessionStatus.COMPLETED.value or (session.imported_rows or 0) > 0:
+                raise ValidationAppError("This import has already been completed.")
             session.status = ImportSessionStatus.VALIDATED.value
             session.validation_summary = result.summary_dict()
             session.valid_rows = 0

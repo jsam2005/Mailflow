@@ -69,6 +69,7 @@ export function ImportContactsPage() {
   const [newListDescription, setNewListDescription] = useState("");
   const [result, setResult] = useState<ImportExecuteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [executeLock, setExecuteLock] = useState(false);
 
   const listsQuery = useQuery({
     queryKey: ["contact-lists"],
@@ -567,10 +568,17 @@ export function ImportContactsPage() {
               disabled={
                 !canContinueReview ||
                 validation.importable_rows === 0 ||
-                executeMutation.isPending
+                executeMutation.isPending ||
+                executeLock
               }
               onClick={() => {
+                if (executeLock || executeMutation.isPending) return;
+                setExecuteLock(true);
+                setError(null);
                 // Re-validate against selected list before execute for accurate existing dups
+                const runExecute = () => executeMutation.mutate(undefined, {
+                  onSettled: () => setExecuteLock(false),
+                });
                 if (listMode === "existing" && selectedListId) {
                   validateImport(upload.import_session_id, {
                     column_mapping: mapping,
@@ -581,17 +589,21 @@ export function ImportContactsPage() {
                       setValidation(fresh);
                       if (fresh.importable_rows === 0) {
                         setError("No valid contacts are available for import.");
+                        setExecuteLock(false);
                         return;
                       }
-                      executeMutation.mutate();
+                      runExecute();
                     })
-                    .catch((err) => setError(getErrorMessage(err)));
+                    .catch((err) => {
+                      setError(getErrorMessage(err));
+                      setExecuteLock(false);
+                    });
                 } else {
-                  executeMutation.mutate();
+                  runExecute();
                 }
               }}
             >
-              {executeMutation.isPending
+              {executeMutation.isPending || executeLock
                 ? "Importing…"
                 : `Import ${validation.importable_rows.toLocaleString()} Contacts`}
             </button>

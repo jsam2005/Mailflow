@@ -130,6 +130,20 @@ def test_validate_and_execute_import(
     assert body["imported_rows"] == 3
     assert body["status"] == "completed"
 
+    # Second execute must not clobber completed status or re-import.
+    again = client.post(
+        f"/api/v1/imports/{import_id}/execute",
+        headers=auth_headers,
+        json={
+            "contact_list_id": contact_list["id"],
+            "column_mapping": SAMPLE_MAPPING,
+        },
+    )
+    assert again.status_code == 422
+    assert "already been completed" in again.json()["message"]
+    status = client.get(f"/api/v1/imports/{import_id}", headers=auth_headers)
+    assert status.json()["status"] == "completed"
+
     contacts = client.get(
         "/api/v1/contacts",
         headers=auth_headers,
