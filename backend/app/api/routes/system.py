@@ -24,9 +24,12 @@ def worker_health(db: Session = Depends(get_db)) -> WorkerHealthResponse:
         .select_from(EmailMessage)
         .where(EmailMessage.status == EmailMessageStatus.QUEUED.value)
     ) or 0
+    allowlist = settings.campaign_test_allowlist_emails
     return WorkerHealthResponse(
         scheduler_running=worker_state.scheduler_running,
         campaign_sending_enabled=settings.campaign_sending_enabled,
+        test_allowlist_configured=bool(allowlist),
+        test_allowlist_size=len(allowlist),
         last_worker_tick=worker_state.last_worker_tick,
         last_send_success_at=worker_state.last_send_success_at,
         queued_messages=queued,
