@@ -1,2 +1,27 @@
-# Root requirements for Vercel Python runtime (mirrors backend/)
--r backend/requirements.txt
+# Root requirements for Vercel Python (must be inline — Vercel does not support -r includes).
+# Keep in sync with backend/requirements.txt.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.20
+httpx==0.28.1
+cryptography==44.0.0
+apscheduler==3.10.4
+email-validator==2.2.0
+structlog==24.4.0
+pytest==8.3.4
+pytest-cov==6.0.0
+pandas==2.2.3
+openpyxl==3.1.5
+bleach[css]==6.2.0
+Pillow==11.0.0
+beautifulsoup4==4.12.3
+tinycss2==1.4.0
+itsdangerous==2.2.0
