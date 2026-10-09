@@ -16,6 +16,11 @@ from app.models.campaign_recipient import CampaignRecipient, CampaignRecipientSt
 from app.models.contact import Contact
 from app.models.email_account import ConnectionStatus, EmailAccount
 from app.models.email_message import EmailMessage, EmailMessageStatus
+from app.services.campaign.personalization import (
+    UnresolvedPersonalizationError,
+    apply_render_to_message,
+    render_campaign_content,
+)
 from app.services.campaign.rate_limits import RateLimitService, effective_limits
 from app.services.campaign.send_errors import (
     classify_exception,
@@ -25,7 +30,7 @@ from app.services.campaign_delivery_service import CampaignDeliveryService
 from app.services.email.email_message_builder import EmailMessageBuilder
 from app.services.email.gmail_provider import GmailProvider
 from app.services.email_account_service import EmailAccountService
-from app.services.template_render_service import RenderContext, TemplateRenderService
+from app.services.template_render_service import TemplateRenderService
 from app.utils.html_sanitize import sanitize_email_html
 from app.utils.plain_text import html_to_plain_text
 from app.workers import worker_state
@@ -139,6 +144,9 @@ class CampaignSenderWorker:
         accounts_with_sending: set,
     ) -> EmailMessage | None:
         now = datetime.now(UTC)
+        # SKIP LOCKED (Postgres) + optimistic claim below = no double-send.
+        bind = db.get_bind()
+        dialect = getattr(getattr(bind, "dialect", None), "name", "") or ""
         stmt = (
             select(EmailMessage)
             .join(Campaign, Campaign.id == EmailMessage.campaign_id)
@@ -153,6 +161,8 @@ class CampaignSenderWorker:
             .order_by(EmailMessage.next_attempt_at.asc(), EmailMessage.created_at.asc())
             .limit(50)
         )
+        if dialect == "postgresql":
+            stmt = stmt.with_for_update(skip_locked=True)
         candidates = list(db.scalars(stmt).all())
         for message in candidates:
             if message.email_account_id in accounts_with_sending:
@@ -174,6 +184,7 @@ class CampaignSenderWorker:
         return None
 
     def _claim_message(self, db: Session, message: EmailMessage) -> bool:
+        """Optimistic claim — only one worker can move queued → sending."""
         now = datetime.now(UTC)
         rfc = message.rfc_message_id or CampaignDeliveryService.assign_rfc_message_id(message)
         result = db.execute(
@@ -259,27 +270,49 @@ class CampaignSenderWorker:
 
         try:
             subject_tpl = campaign.snapshot_subject or message.subject
-            html_tpl = campaign.snapshot_html or message.rendered_html
-            text_tpl = campaign.snapshot_plain_text or message.rendered_text
+            html_tpl = campaign.snapshot_html or message.rendered_html or ""
+            text_tpl = campaign.snapshot_plain_text
+            if text_tpl is None:
+                text_tpl = message.rendered_text
 
-            context = RenderContext(
-                first_name=contact.first_name if contact else None,
-                last_name=contact.last_name if contact else None,
-                company=contact.company if contact else None,
-                email=contact.email if contact else message.to_email,
-                phone=contact.phone if contact else None,
-                website=contact.website if contact else None,
-                metadata=contact.contact_metadata if contact else {},
-            )
-            rendered = self.renderer.render(
-                subject=subject_tpl,
-                html_content=html_tpl,
-                plain_text_content=text_tpl,
-                context=context,
-            )
+            try:
+                rendered = render_campaign_content(
+                    subject=subject_tpl or "",
+                    html=html_tpl,
+                    text=text_tpl,
+                    contact=contact,
+                    fallback_email=message.to_email,
+                    require_resolved=True,
+                )
+            except UnresolvedPersonalizationError:
+                self._fail_message(
+                    db,
+                    message,
+                    "RENDER_UNRESOLVED",
+                    "Message contains unresolved personalization tokens.",
+                    retryable=False,
+                    recipient=recipient,
+                )
+                return
+
+            # Persist personalized body before provider send (never for already-sent rows).
+            if message.status != EmailMessageStatus.SENT.value:
+                apply_render_to_message(message, rendered)
+
             subject = rendered.rendered_subject
             html = sanitize_email_html(rendered.rendered_html)
             text = rendered.rendered_text or html_to_plain_text(html)
+
+            if TemplateRenderService.has_unresolved_tokens(subject, html, text):
+                self._fail_message(
+                    db,
+                    message,
+                    "RENDER_UNRESOLVED",
+                    "Message contains unresolved personalization tokens.",
+                    retryable=False,
+                    recipient=recipient,
+                )
+                return
 
             from app.models.user import User
             from app.services.unsubscribe_service import UnsubscribeService
@@ -295,6 +328,7 @@ class CampaignSenderWorker:
             html = html + unsub.footer_html(user=user, message=message)
             text = (text or "") + "\n\n" + unsub.footer_text(user=user, message=message)
 
+            # Store final payload including unsubscribe footer on the sending attempt.
             message.subject = subject
             message.rendered_html = html
             message.rendered_text = text

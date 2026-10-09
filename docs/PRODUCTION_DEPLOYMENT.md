@@ -10,19 +10,26 @@
 
 ## Campaign worker on Vercel Hobby
 
-Vercel Hobby only supports **daily** cron execution. MailFlow campaign delivery needs more frequent processing (minutes, not once per day), so **automatic campaign delivery is disabled** in the initial free deployment.
+Vercel Hobby rejects minute-level cron (`*/5 * * * *`). MailFlow does **not** register unsupported crons.
 
-- `vercel.json` does **not** register a cron schedule (Hobby rejects `*/5 * * * *`).
-- Keep `ENABLE_LOCAL_SCHEDULER=false` and `CAMPAIGN_SENDING_ENABLED=false` on Hobby.
-- The protected worker endpoint remains available for a future external scheduler or always-on worker:
+Sending on Hobby uses:
 
-  `GET|POST /api/v1/internal/workers/campaign-send`
+1. **Kick on start/resume** — one worker batch runs in-process after a campaign starts or resumes.
+2. **Authenticated drain** — logged-in admin can call:
 
-  Authenticate with `Authorization: Bearer <CRON_SECRET>` (min 32 characters). Never put the secret in the URL.
+   `POST /api/v1/system/process-campaign-queue`
 
-Do **not** use a daily Hobby cron as a workaround — it is not suitable for MailFlow send pacing.
+   (JWT session; repeats until the queue is empty / rate-limited.)
+3. **Cron secret endpoint** (optional external scheduler / Pro plan):
 
-When you move to a plan or host that can invoke the worker every few minutes, point that scheduler at the same endpoint with `CRON_SECRET`, then enable sending carefully (allowlist first).
+   `GET|POST /api/v1/internal/workers/campaign-send`  
+   `Authorization: Bearer <CRON_SECRET>`
+
+Keep `ENABLE_LOCAL_SCHEDULER=false` on Vercel. Enable `CAMPAIGN_SENDING_ENABLED=true` only when ready, preferably with `CAMPAIGN_TEST_RECIPIENT_ALLOWLIST` set to one controlled address first.
+
+Queued message personalization can be repaired (unsent only) via:
+
+`POST /api/v1/campaigns/{id}/personalize-queued`
 
 ## Sequence
 

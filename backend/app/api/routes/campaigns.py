@@ -197,6 +197,16 @@ def start_campaign(
     return CampaignDeliveryService(db).start(current_user, campaign_id)
 
 
+@router.post("/{campaign_id}/personalize-queued")
+def personalize_queued_messages(
+    campaign_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Re-render subject/html/text for queued messages only (never sent)."""
+    return CampaignDeliveryService(db).personalize_unsent_messages(current_user, campaign_id)
+
+
 @router.post("/{campaign_id}/pause", response_model=CampaignResponse)
 def pause_campaign(
     campaign_id: UUID,

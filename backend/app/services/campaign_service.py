@@ -472,12 +472,23 @@ class CampaignService:
         campaign = self._get_owned(user, campaign_id, load_relations=True)
         subject_src, html_src, plain_src = self._resolve_content(campaign)
 
+        # Previewable after snapshot and after queueing (queued/sending/sent/…).
+        # Exclude only contacts that never entered the deliverable audience.
+        previewable_statuses = {
+            CampaignRecipientStatus.PENDING.value,
+            CampaignRecipientStatus.QUEUED.value,
+            CampaignRecipientStatus.SENDING.value,
+            CampaignRecipientStatus.SENT.value,
+            CampaignRecipientStatus.FAILED.value,
+            CampaignRecipientStatus.REPLIED.value,
+            CampaignRecipientStatus.UNSUBSCRIBED.value,
+        }
         eligible_ids = list(
             self.db.scalars(
                 select(CampaignRecipient.contact_id)
                 .where(
                     CampaignRecipient.campaign_id == campaign.id,
-                    CampaignRecipient.status == CampaignRecipientStatus.PENDING.value,
+                    CampaignRecipient.status.in_(previewable_statuses),
                 )
                 .order_by(CampaignRecipient.id.asc())
             ).all()
@@ -487,7 +498,6 @@ class CampaignService:
 
         contact_id = data.contact_id or eligible_ids[0]
         if contact_id not in eligible_ids:
-            # Allow preview of owned pending recipient only
             raise NotFoundError("Eligible recipient not found for this campaign.")
 
         contact = self.db.scalar(

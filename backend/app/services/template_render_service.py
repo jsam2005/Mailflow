@@ -51,6 +51,14 @@ class RenderResult:
 
 
 class TemplateRenderService:
+    @staticmethod
+    def has_unresolved_tokens(*texts: str | None) -> bool:
+        """True if any {{variable}} token remains (malformed or unprocessed)."""
+        for text in texts:
+            if text and VARIABLE_PATTERN.search(text):
+                return True
+        return False
+
     def render(
         self,
         *,

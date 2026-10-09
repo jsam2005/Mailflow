@@ -27,6 +27,11 @@ from app.models.email_message import EmailMessage, EmailMessageStatus
 from app.models.user import User
 from app.schemas.campaigns import CampaignResponse, CampaignStatsResponse
 from app.schemas.email_messages import EmailMessageResponse, PaginatedEmailMessagesResponse
+from app.services.campaign.personalization import (
+    UnresolvedPersonalizationError,
+    apply_render_to_message,
+    render_campaign_content,
+)
 from app.services.campaign.send_errors import NON_RETRYABLE_CODES
 from app.services.campaign_service import CampaignService
 
@@ -117,6 +122,21 @@ class CampaignDeliveryService:
             if any(parts):
                 to_name = " ".join(p for p in parts if p and str(p).strip())
 
+            try:
+                rendered = render_campaign_content(
+                    subject=campaign.snapshot_subject or "",
+                    html=campaign.snapshot_html or "",
+                    text=campaign.snapshot_plain_text,
+                    contact=contact,
+                    fallback_email=contact.email,
+                    require_resolved=True,
+                )
+            except UnresolvedPersonalizationError as exc:
+                raise ValidationAppError(
+                    "Campaign content could not be personalized for all recipients. "
+                    "Fix template variables before starting."
+                ) from exc
+
             batch.append(
                 EmailMessage(
                     user_id=user.id,
@@ -126,9 +146,9 @@ class CampaignDeliveryService:
                     email_account_id=account.id,
                     to_email=contact.email,
                     to_name=to_name,
-                    subject=campaign.snapshot_subject,
-                    rendered_html=campaign.snapshot_html,
-                    rendered_text=campaign.snapshot_plain_text,
+                    subject=rendered.rendered_subject,
+                    rendered_html=rendered.rendered_html,
+                    rendered_text=rendered.rendered_text,
                     status=EmailMessageStatus.QUEUED.value,
                     max_attempts=self.settings.campaign_max_send_attempts,
                     next_attempt_at=now,
@@ -157,6 +177,8 @@ class CampaignDeliveryService:
             messages_created=created,
         )
         self.db.refresh(campaign)
+        # Hobby has no frequent cron — process one batch immediately after start.
+        self._kick_worker_batch(campaign_id=campaign.id)
         return self._campaigns.get(user, campaign.id)
 
     def pause(self, user: User, campaign_id: UUID) -> CampaignResponse:
@@ -183,7 +205,79 @@ class CampaignDeliveryService:
         campaign.last_activity_at = datetime.now(UTC)
         self.db.commit()
         logger.info("campaign.resumed", user_id=str(user.id), campaign_id=str(campaign.id))
+        self._kick_worker_batch(campaign_id=campaign.id)
         return self._campaigns.get(user, campaign.id)
+
+    def personalize_unsent_messages(self, user: User, campaign_id: UUID) -> dict:
+        """Re-render stored content for queued (unsent) messages only. Never touches sent."""
+        campaign = self._campaigns._get_owned(user, campaign_id, load_relations=True)
+        subject_tpl = campaign.snapshot_subject or ""
+        html_tpl = campaign.snapshot_html or ""
+        text_tpl = campaign.snapshot_plain_text
+
+        messages = list(
+            self.db.scalars(
+                select(EmailMessage)
+                .where(
+                    EmailMessage.campaign_id == campaign.id,
+                    EmailMessage.status == EmailMessageStatus.QUEUED.value,
+                )
+                .order_by(EmailMessage.created_at.asc())
+            ).all()
+        )
+        updated = 0
+        failed = 0
+        for message in messages:
+            contact = self.db.get(Contact, message.contact_id)
+            try:
+                rendered = render_campaign_content(
+                    subject=subject_tpl or message.subject,
+                    html=html_tpl or (message.rendered_html or ""),
+                    text=text_tpl if text_tpl is not None else message.rendered_text,
+                    contact=contact,
+                    fallback_email=message.to_email,
+                    require_resolved=True,
+                )
+            except UnresolvedPersonalizationError:
+                failed += 1
+                logger.warning(
+                    "campaign.personalize_unresolved",
+                    campaign_id=str(campaign.id),
+                    message_id=str(message.id),
+                )
+                continue
+            apply_render_to_message(message, rendered)
+            updated += 1
+        self.db.commit()
+        logger.info(
+            "campaign.personalized_unsent",
+            campaign_id=str(campaign.id),
+            updated=updated,
+            failed=failed,
+        )
+        return {"updated": updated, "failed": failed, "total_queued": len(messages)}
+
+    def _kick_worker_batch(self, *, campaign_id: UUID) -> None:
+        """Best-effort queue drain for Hobby (no minute-level cron)."""
+        if self.settings.environment in {"test", "testing"}:
+            return
+        try:
+            from app.workers.campaign_sender_worker import CampaignSenderWorker
+
+            summary = CampaignSenderWorker(self.db).process_campaign_queue_batch()
+            logger.info(
+                "campaign.worker_kick",
+                campaign_id=str(campaign_id),
+                claimed=summary.get("claimed"),
+                sent=summary.get("sent"),
+                deferred=summary.get("deferred"),
+                failed=summary.get("failed"),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "campaign.worker_kick_failed",
+                campaign_id=str(campaign_id),
+            )
 
     def cancel(self, user: User, campaign_id: UUID) -> CampaignResponse:
         campaign = self._campaigns._get_owned(user, campaign_id, load_relations=True)

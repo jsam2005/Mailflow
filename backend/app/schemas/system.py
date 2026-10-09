@@ -11,3 +11,20 @@ class WorkerHealthResponse(BaseModel):
     last_worker_tick: datetime | None = None
     last_send_success_at: datetime | None = None
     queued_messages: int = 0
+
+
+class ProcessCampaignQueueResponse(BaseModel):
+    claimed: int
+    sent: int
+    failed: int
+    deferred: int
+    cancelled: int
+    completed_campaigns: int
+    sending_enabled: bool
+    execution_ms: int
+
+
+class PersonalizeQueuedResponse(BaseModel):
+    updated: int
+    failed: int
+    total_queued: int
