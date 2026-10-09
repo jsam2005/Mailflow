@@ -75,3 +75,8 @@ logs/
 
 # Docker
 docker-compose.override.yml
+
+# Neon CLI link metadata (may contain project ids; keep local)
+.neon
+.neon/
+.venv-vercel-test/
