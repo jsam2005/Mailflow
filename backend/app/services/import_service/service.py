@@ -22,7 +22,8 @@ from app.services.contact_list_service import ContactListService
 from app.services.import_service.column_mapping import suggest_column_mapping, validate_mapping
 from app.services.import_service.parsers import get_parser
 from app.services.import_service.validation import ImportValidationService, MappedContactRow
-from app.services.storage.local import LocalStorage
+from app.services.storage.base import StorageProvider
+from app.services.storage.factory import get_storage_provider
 
 logger = get_logger(__name__)
 
@@ -30,10 +31,10 @@ ALLOWED_EXTENSIONS = {".csv": "csv", ".xlsx": "xlsx"}
 
 
 class ImportService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, storage: StorageProvider | None = None) -> None:
         self.db = db
         self.settings = get_settings()
-        self.storage = LocalStorage()
+        self.storage = storage or get_storage_provider()
         self.list_service = ContactListService(db)
         self.validator = ImportValidationService(db)
 
@@ -55,22 +56,39 @@ class ImportService:
             )
 
         file_type = ALLOWED_EXTENSIONS[suffix]
-        stored = self.storage.save_import_file(content, file_type)
-        path = self.storage.import_file_path(stored)
+        try:
+            stored = self.storage.save_import_file(content, file_type)
+        except ValidationAppError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "import.storage_save_failed",
+                error_type=type(exc).__name__,
+                file_ext=suffix,
+                file_size=len(content),
+                user_id=str(user.id),
+            )
+            raise ValidationAppError("Could not process this contact file.") from exc
 
         try:
-            parser = get_parser(path, file_type)
+            parser = get_parser(content, file_type)
             sheets = parser.get_sheets() if file_type == "xlsx" else []
             default_sheet = sheets[0] if sheets else None
             columns = parser.get_columns(default_sheet)
             preview = parser.get_preview(default_sheet, limit=20)
             total_rows = parser.get_row_count(default_sheet)
         except ValidationAppError:
-            path.unlink(missing_ok=True)
+            self._safe_delete(stored)
             raise
         except Exception as exc:  # noqa: BLE001
-            path.unlink(missing_ok=True)
-            logger.exception("import.parse_failed", error_type=type(exc).__name__)
+            self._safe_delete(stored)
+            logger.exception(
+                "import.parse_failed",
+                error_type=type(exc).__name__,
+                file_ext=suffix,
+                file_size=len(content),
+                user_id=str(user.id),
+            )
             raise ValidationAppError(
                 "We couldn't read this file. Please confirm it is a valid CSV or XLSX."
             ) from exc
@@ -94,6 +112,7 @@ class ImportService:
             user_id=str(user.id),
             total_rows=total_rows,
             file_type=file_type,
+            storage_provider=getattr(self.storage, "name", "unknown"),
         )
 
         return {
@@ -111,8 +130,7 @@ class ImportService:
 
     def preview(self, user: User, import_id: UUID, sheet: str | None = None) -> dict:
         session = self._get_owned(user, import_id)
-        path = self.storage.import_file_path(session.stored_filename)
-        parser = get_parser(path, session.file_type)
+        parser = get_parser(self._read_import_bytes(session), session.file_type)
         selected = sheet or session.selected_sheet
         if session.file_type == "xlsx" and sheet:
             session.selected_sheet = sheet
@@ -158,8 +176,7 @@ class ImportService:
             self.list_service.get_contact_list(user, contact_list_id)
 
         selected = sheet or session.selected_sheet
-        path = self.storage.import_file_path(session.stored_filename)
-        parser = get_parser(path, session.file_type)
+        parser = get_parser(self._read_import_bytes(session), session.file_type)
         rows = list(parser.iterate_rows(selected))
 
         result = self.validator.validate_rows(rows, column_mapping, contact_list_id)
@@ -171,8 +188,15 @@ class ImportService:
             "sheet": selected,
             "contact_list_id": str(contact_list_id) if contact_list_id else None,
         }
-        cache_path = self.storage.validation_cache_path(str(session.id))
-        cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        cache_key = f"imports/{session.id}_validated.json"
+        try:
+            self.storage.save(cache_key, json.dumps(cache).encode("utf-8"))
+        except Exception:  # noqa: BLE001 — cache is optional; execute revalidates
+            logger.exception(
+                "import.validation_cache_failed",
+                import_session_id=str(session.id),
+                error_type="storage",
+            )
 
         session.column_mapping = column_mapping
         session.selected_sheet = selected
@@ -220,8 +244,7 @@ class ImportService:
         selected = sheet or session.selected_sheet
 
         # Always re-validate server-side before insert
-        path = self.storage.import_file_path(session.stored_filename)
-        parser = get_parser(path, session.file_type)
+        parser = get_parser(self._read_import_bytes(session), session.file_type)
         rows = list(parser.iterate_rows(selected))
         result = self.validator.validate_rows(rows, mapping, contact_list_id)
 
@@ -353,6 +376,31 @@ class ImportService:
             self.db.flush()
             total += len(objects)
         return total
+
+    def _read_import_bytes(self, session: ImportSession) -> bytes:
+        key = session.stored_filename
+        try:
+            return self.storage.read(key)
+        except NotFoundError:
+            # Legacy local rows stored basename only.
+            if "/" not in key and not key.startswith("http"):
+                return self.storage.read(f"imports/{key}")
+            raise
+        except ValidationAppError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "import.storage_read_failed",
+                import_session_id=str(session.id),
+                error_type=type(exc).__name__,
+            )
+            raise ValidationAppError("Could not process this contact file.") from exc
+
+    def _safe_delete(self, key: str) -> None:
+        try:
+            self.storage.delete(key)
+        except Exception:  # noqa: BLE001
+            logger.exception("import.storage_cleanup_failed", error_type="storage")
 
     def _get_owned(
         self,

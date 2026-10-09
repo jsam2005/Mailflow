@@ -23,13 +23,15 @@ class VercelBlobStorageProvider(StorageProvider):
             raise ValidationAppError("BLOB_READ_WRITE_TOKEN is not configured.")
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.token}"}
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "x-api-version": "7",
+        }
 
     def save(self, key: str, content: bytes, *, content_type: str | None = None) -> str:
         cleaned = key.lstrip("/")
         headers = {
             **self._headers(),
-            "x-api-version": "7",
             "x-vercel-blob-pathname": cleaned,
         }
         if content_type:
@@ -39,14 +41,15 @@ class VercelBlobStorageProvider(StorageProvider):
         if response.status_code >= 400:
             raise ValidationAppError("Failed to store file in object storage.")
         data = response.json()
-        return data.get("pathname") or cleaned
+        # Persist URL when available so private/public reads resolve consistently.
+        return data.get("url") or data.get("pathname") or cleaned
 
     def read(self, key: str) -> bytes:
         url = self.get_url(key)
         if not url:
             raise NotFoundError("Storage object not found.")
         with httpx.Client(timeout=60.0) as client:
-            response = client.get(url)
+            response = client.get(url, headers=self._headers())
         if response.status_code == 404:
             raise NotFoundError("Storage object not found.")
         if response.status_code >= 400:
@@ -60,7 +63,7 @@ class VercelBlobStorageProvider(StorageProvider):
         with httpx.Client(timeout=30.0) as client:
             client.post(
                 f"{BLOB_API}/delete",
-                headers={**self._headers(), "x-api-version": "7"},
+                headers=self._headers(),
                 json={"url": url},
             )
 
@@ -72,12 +75,12 @@ class VercelBlobStorageProvider(StorageProvider):
             return False
 
     def get_url(self, key: str) -> str | None:
-        # Store absolute URLs as keys when saved; otherwise construct pathname URL lookup
-        # via list is not available — callers should persist public_url when uploading.
         if key.startswith("http://") or key.startswith("https://"):
             return key
-        # Best-effort public URL pattern; prefer persisted public_url on TemplateAsset.
-        return None
+        cleaned = key.lstrip("/")
+        if not cleaned:
+            return None
+        return f"{BLOB_API}/{cleaned}"
 
     def save_import_file(self, content: bytes, extension: str) -> str:
         key = f"imports/{uuid4()}.{extension.lower().lstrip('.')}"

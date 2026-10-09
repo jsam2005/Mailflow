@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import BinaryIO
+from uuid import uuid4
 
 
 class StorageProvider(ABC):
@@ -42,3 +43,11 @@ class StorageProvider(ABC):
         content_type: str | None = None,
     ) -> str:
         return self.save(key, stream.read(), content_type=content_type)
+
+    def save_import_file(self, content: bytes, extension: str) -> str:
+        key = f"imports/{uuid4()}.{extension.lower().lstrip('.')}"
+        return self.save(key, content)
+
+    def save_template_image(self, content: bytes, extension: str) -> str:
+        key = f"template-images/{uuid4()}.{extension.lower().lstrip('.')}"
+        return self.save(key, content)

@@ -14,6 +14,8 @@ from openpyxl import load_workbook
 from app.core.exceptions import ValidationAppError
 from app.services.import_service.column_mapping import json_safe
 
+ParserSource = Path | bytes
+
 
 def cell_to_str(value: Any) -> str | None:
     if value is None:
@@ -25,9 +27,15 @@ def cell_to_str(value: Any) -> str | None:
     return text or None
 
 
+def _source_bytes(source: ParserSource) -> bytes:
+    if isinstance(source, bytes):
+        return source
+    return source.read_bytes()
+
+
 class BaseContactFileParser(ABC):
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    def __init__(self, source: ParserSource) -> None:
+        self.source = source
 
     @abstractmethod
     def get_columns(self, sheet: str | None = None) -> list[str]:
@@ -58,7 +66,7 @@ class BaseContactFileParser(ABC):
 
 class CSVContactParser(BaseContactFileParser):
     def _read_text(self) -> str:
-        raw = self.path.read_bytes()
+        raw = _source_bytes(self.source)
         for encoding in ("utf-8-sig", "utf-8", "latin-1"):
             try:
                 return raw.decode(encoding)
@@ -121,8 +129,9 @@ class CSVContactParser(BaseContactFileParser):
 class XLSXContactParser(BaseContactFileParser):
     def _load(self):
         try:
+            raw = _source_bytes(self.source)
             return load_workbook(
-                filename=self.path,
+                filename=BytesIO(raw),
                 read_only=True,
                 data_only=True,
                 keep_links=False,
@@ -208,9 +217,9 @@ class XLSXContactParser(BaseContactFileParser):
         return len(rows)
 
 
-def get_parser(path: Path, file_type: str) -> BaseContactFileParser:
+def get_parser(source: ParserSource, file_type: str) -> BaseContactFileParser:
     if file_type == "csv":
-        return CSVContactParser(path)
+        return CSVContactParser(source)
     if file_type == "xlsx":
-        return XLSXContactParser(path)
+        return XLSXContactParser(source)
     raise ValidationAppError("The selected file must be CSV or XLSX.")
