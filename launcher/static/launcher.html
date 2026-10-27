@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MailFlow Launcher</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f0ea;
+        --ink: #1c1917;
+        --muted: #57534e;
+        --card: #fffcf7;
+        --border: #e7e0d5;
+        --brand: #0f766e;
+        --brand-ink: #ffffff;
+        --danger: #b91c1c;
+        --warn: #92400e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 600px at 10% -10%, #d9f3ef 0%, transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, #f5e6d3 0%, transparent 50%),
+          var(--bg);
+      }
+      main {
+        max-width: 32rem;
+        margin: 0 auto;
+        padding: 3.5rem 1.25rem 2rem;
+      }
+      h1 {
+        margin: 0 0 0.35rem;
+        font-size: 2rem;
+        letter-spacing: -0.03em;
+      }
+      .lede {
+        margin: 0 0 1.75rem;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.25rem;
+      }
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .dot {
+        width: 0.65rem;
+        height: 0.65rem;
+        border-radius: 999px;
+        background: #a8a29e;
+      }
+      .dot.running { background: #0f766e; }
+      .dot.starting, .dot.stopping { background: #d97706; }
+      .dot.error { background: #b91c1c; }
+      .actions {
+        display: grid;
+        gap: 0.65rem;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 0.8rem 1rem;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        background: #fff;
+        color: var(--ink);
+      }
+      button.primary {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: var(--brand-ink);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .error {
+        margin-top: 1rem;
+        padding: 0.75rem 0.9rem;
+        border-radius: 0.75rem;
+        background: #fef2f2;
+        color: var(--danger);
+        font-size: 0.92rem;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+      .hint {
+        margin-top: 1rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.4;
+      }
+      .note {
+        margin-top: 1.5rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MailFlow</h1>
+      <p class="lede">Local launcher for this Mac. Start the app, open it in your browser, or stop the services this launcher owns.</p>
+
+      <section class="panel" aria-live="polite">
+        <div class="status-row">
+          <span class="badge"><span id="status-dot" class="dot"></span> Status</span>
+          <strong id="status-label">stopped</strong>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="primary" id="btn-start">Start MailFlow</button>
+          <button type="button" id="btn-open">Open MailFlow</button>
+          <button type="button" id="btn-stop">Stop MailFlow</button>
+        </div>
+
+        <div id="error" class="error" hidden></div>
+        <p class="hint" id="hint">
+          Start launches the API and Vite UI using your existing local setup. It does not install packages or run migrations.
+        </p>
+      </section>
+
+      <p class="note">
+        First time? macOS: <code>launcher/setup.command</code> — Windows: <code>Setup-MailFlow-Windows.cmd</code>.
+        Everyday: <code>MailFlow.command</code> or <code>Start-MailFlow-Windows.cmd</code>.
+      </p>
+    </main>
+
+    <script>
+      const TOKEN = "__LAUNCHER_TOKEN__";
+      const ORIGIN = "__LAUNCHER_ORIGIN__";
+
+      const statusLabel = document.getElementById("status-label");
+      const statusDot = document.getElementById("status-dot");
+      const errorEl = document.getElementById("error");
+      const hintEl = document.getElementById("hint");
+      const btnStart = document.getElementById("btn-start");
+      const btnOpen = document.getElementById("btn-open");
+      const btnStop = document.getElementById("btn-stop");
+
+      async function api(path, method = "GET") {
+        const res = await fetch(ORIGIN + path, {
+          method,
+          headers: {
+            Authorization: "Bearer " + TOKEN,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const message = data.error || ("Request failed (" + res.status + ")");
+          throw new Error(message);
+        }
+        return data;
+      }
+
+      function render(data) {
+        const status = data.status || "stopped";
+        statusLabel.textContent = status;
+        statusDot.className = "dot " + status;
+        if (data.error) {
+          errorEl.hidden = false;
+          errorEl.textContent = data.error;
+        } else if (data.notice) {
+          errorEl.hidden = false;
+          errorEl.textContent = data.notice;
+          errorEl.style.background = "#fffbeb";
+          errorEl.style.color = "var(--warn)";
+        } else {
+          errorEl.hidden = true;
+          errorEl.textContent = "";
+          errorEl.style.background = "";
+          errorEl.style.color = "";
+        }
+        const busy = status === "starting" || status === "stopping";
+        btnStart.disabled = busy || status === "running";
+        btnOpen.disabled = status !== "running";
+        btnStop.disabled = busy || status === "stopped" || data.owned === false;
+        if (data.owned === false && status === "running") {
+          hintEl.textContent =
+            "MailFlow is running outside this launcher. Open works; Stop is disabled so unrelated processes stay untouched.";
+        } else if (status === "running") {
+          hintEl.textContent = "MailFlow is ready at " + (data.frontend_url || "http://127.0.0.1:5173");
+        } else if (status === "starting") {
+          hintEl.textContent = "Starting backend and frontend…";
+        } else if (status === "stopping") {
+          hintEl.textContent = "Stopping launcher-owned processes…";
+        } else {
+          hintEl.textContent =
+            "Start launches the API and Vite UI using your existing local setup. It does not install packages or run migrations.";
+        }
+      }
+
+      async function refresh() {
+        try {
+          const data = await api("/api/status");
+          render(data);
+        } catch (err) {
+          errorEl.hidden = false;
+          errorEl.textContent = err.message || String(err);
+        }
+      }
+
+      async function run(path) {
+        btnStart.disabled = true;
+        btnOpen.disabled = true;
+        btnStop.disabled = true;
+        try {
+          const data = await api(path, "POST");
+          render(data);
+          if (data.error && data.status === "error") {
+            errorEl.hidden = false;
+            errorEl.textContent = data.error;
+          }
+        } catch (err) {
+          errorEl.hidden = false;
+          errorEl.textContent = err.message || String(err);
+          await refresh();
+        }
+      }
+
+      btnStart.addEventListener("click", () => run("/api/start"));
+      btnOpen.addEventListener("click", () => run("/api/open"));
+      btnStop.addEventListener("click", () => {
+        if (!confirm("Stop MailFlow? Active local work may be interrupted.")) return;
+        run("/api/stop");
+      });
+
+      refresh();
+      setInterval(refresh, 2000);
+    </script>
+  </body>
+</html>

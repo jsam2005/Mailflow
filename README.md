@@ -13,6 +13,19 @@ Private admin-only application (no public signup). Create administrators with th
 
 ---
 
+## Local launcher
+
+`launcher.html` alone cannot run shell commands (`file://` has no terminal access). A small loopback control service on `127.0.0.1:8765` owns Start / Open / Stop. In-app **Exit local app** appears only when Vite was started by that launcher (not in hosted builds).
+
+| Platform | First-time setup | Everyday start | Fallback stop |
+|----------|------------------|----------------|---------------|
+| macOS | `launcher/setup.command` | `MailFlow.command` | Launcher **Stop** / Exit |
+| Windows 11 x64 | `Setup-MailFlow-Windows.cmd` | `Start-MailFlow-Windows.cmd` | `Stop-MailFlow-Windows.cmd` |
+
+Full Windows guide (fresh PC, winget, Git/ZIP, Gmail, auth email): [docs/WINDOWS_LOCAL_SETUP.md](docs/WINDOWS_LOCAL_SETUP.md).
+
+**First-time setup** installs dependencies and runs migrations once — not on every Start. Manual equivalent remains below.
+
 ## Development
 
 ```bash
@@ -40,6 +53,7 @@ npm run dev
 | Frontend | http://localhost:5173      |
 | Backend  | http://localhost:8000      |
 | API docs | http://localhost:8000/docs |
+| Launcher | http://127.0.0.1:8765      |
 
 Local admin is created on startup only when `ENVIRONMENT=development` and `ADMIN_EMAIL` / `ADMIN_PASSWORD` are set. Prefer:
 
@@ -89,6 +103,9 @@ cd frontend
 npm test
 npx tsc --noEmit
 npm run build
+
+# Local launcher (from repo root)
+backend/.venv/bin/pytest launcher/tests -q
 ```
 
 Pytest refuses non-local / known-hosted production database URLs.

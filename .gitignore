@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.production.example
+!.env.staging.example
 .env.local
 .env.production
 *.pem
@@ -72,6 +73,19 @@ storage/attachments/*
 # Logs
 *.log
 logs/
+
+
+# Local launcher runtime logs (never commit)
+launcher/.runtime/*
+!launcher/.runtime/.gitkeep
+
+# Local auth-email outbox (console/file provider artifacts)
+**/storage/auth-email-outbox/*
+!**/storage/auth-email-outbox/.gitkeep
+
+# Duplicate docs archive / local media (not part of the app)
+docs.zip
+audio/
 
 # Docker
 docker-compose.override.yml

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MailFlow stopped</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f0ea;
+        --ink: #1c1917;
+        --muted: #57534e;
+        --card: #fffcf7;
+        --border: #e7e0d5;
+        --brand: #0f766e;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1000px 500px at 0% 0%, #d9f3ef 0%, transparent 55%),
+          var(--bg);
+      }
+      .card {
+        width: min(28rem, calc(100% - 2rem));
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.75rem;
+      }
+      h1 { margin: 0 0 0.5rem; font-size: 1.6rem; }
+      p { margin: 0 0 1.25rem; color: var(--muted); line-height: 1.45; }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        background: var(--brand);
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>MailFlow stopped</h1>
+      <p>
+        Local MailFlow services started by the launcher have been shut down.
+        This browser tab can stay open. Use the launcher to start again.
+      </p>
+      <a id="back" href="/">Return to launcher</a>
+    </div>
+    <script>
+      document.getElementById("back").href = "__LAUNCHER_ORIGIN__/";
+    </script>
+  </body>
+</html>

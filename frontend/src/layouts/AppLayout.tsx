@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { LogOut, Menu } from "lucide-react";
 
 import { useAuth } from "@/features/auth/AuthContext";
+import { ExitLocalAppButton } from "@/features/localLauncher/ExitLocalAppButton";
 import { Sidebar } from "@/layouts/Sidebar";
 
 export function AppLayout() {
@@ -32,6 +33,7 @@ export function AppLayout() {
               <p className="text-sm font-medium text-ink">{user?.name}</p>
               <p className="text-xs text-ink-subtle">{user?.email}</p>
             </div>
+            <ExitLocalAppButton />
             <button
               type="button"
               onClick={logout}
