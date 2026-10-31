@@ -218,31 +218,46 @@ Then re-run Setup-MailFlow-Windows.cmd
     }
 
     Write-Step "Checking required tools"
-    $python = Find-Command "python"
-    $pyLauncher = Find-Command "py"
-    if (-not $python -and $pyLauncher) {
-        $python = $pyLauncher
-    }
-    if (-not $python) {
-        throw @"
-Python was not found.
-Install Python 3.12 from https://www.python.org/downloads/ (check Add to PATH),
-or re-run: Setup-MailFlow-Windows.cmd -InstallPrereqs
-"@
-    }
 
-    # Prefer py -3.12 when available
-    $pythonExe = $python
+    # Resolve a real Python 3.12 (never the Microsoft Store stub under WindowsApps).
+    $pythonExe = $null
     if (Find-Command "py") {
         try {
             $ver = & py -3.12 -c "import sys; print(sys.executable)" 2>$null
             if ($LASTEXITCODE -eq 0 -and $ver) { $pythonExe = $ver.Trim() }
         } catch { }
     }
+    if (-not $pythonExe) {
+        $candidate = Find-Command "python"
+        if ($candidate -and ($candidate -notmatch 'WindowsApps')) {
+            $pythonExe = $candidate
+        }
+    }
+    if (-not $pythonExe) {
+        throw @"
+Python 3.12 was not found (or only the Microsoft Store shortcut is on PATH).
+
+Fix:
+  1. Settings -> Apps -> Advanced app settings -> App execution aliases
+     Turn OFF: python.exe and python3.exe
+  2. Install Python 3.12 from https://www.python.org/downloads/
+     Tick: Add python.exe to PATH
+     Do NOT use Python 3.14
+  3. Close this window, open a NEW Command Prompt, then run Setup-MailFlow-Windows.cmd again
+
+Check:  py -3.12 --version
+   or:  python --version
+"@
+    }
 
     $pyVer = Get-PythonVersionString $pythonExe
-    if ($pyVer -ne "3.12") {
-        throw "Python 3.12 is required (found $pyVer at $pythonExe). Do not use 3.14."
+    if (-not $pyVer -or $pyVer -ne "3.12") {
+        throw @"
+Python 3.12 is required (found '$pyVer' at $pythonExe). Do not use 3.14.
+
+If you see a Microsoft Store message, disable App execution aliases for python.exe,
+install Python 3.12 from python.org with Add to PATH, then reopen Command Prompt.
+"@
     }
     Write-Host "Python: $pythonExe ($pyVer)"
 
