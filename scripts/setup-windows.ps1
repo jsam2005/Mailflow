@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   First-time MailFlow setup for Windows 11 x64.
@@ -125,7 +125,7 @@ function Ensure-LocalEnv {
     $example = Join-Path $Root ".env.example"
 
     if ((Test-Path -LiteralPath $rootEnv) -or (Test-Path -LiteralPath $backendEnv)) {
-        Write-Host "Existing .env found — leaving configuration unchanged."
+        Write-Host "Existing .env found - leaving configuration unchanged."
         if ((Test-Path -LiteralPath $rootEnv) -and -not (Test-Path -LiteralPath $backendEnv)) {
             Copy-Item -LiteralPath $rootEnv -Destination $backendEnv
             Write-Host "Synced backend\.env from root .env"
@@ -201,7 +201,7 @@ winget is not available on this machine.
 Install App Installer from Microsoft Store, or install manually:
   Git:      https://git-scm.com/download/win
   Python:   https://www.python.org/downloads/release/python-31210/
-            (3.12.x only — do not use 3.14; check 'Add python.exe to PATH')
+            (3.12.x only - do not use 3.14; check 'Add python.exe to PATH')
   Node.js:  https://nodejs.org/en/download (LTS 20+)
   Docker:   https://docs.docker.com/desktop/setup/install/windows-install/
 Then re-run Setup-MailFlow-Windows.cmd
@@ -311,7 +311,7 @@ Alternatively, install PostgreSQL 16 locally and set DATABASE_URL in .env to mat
     if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
     if (-not $SkipMigrations) {
-        Write-Step "Running migrations (setup only — not on everyday Start)"
+        Write-Step "Running migrations (setup only - not on everyday Start)"
         # Validate local DATABASE_URL host before migrating
         $envPath = Join-Path $backend ".env"
         if (-not (Test-Path -LiteralPath $envPath)) { $envPath = Join-Path $root ".env" }

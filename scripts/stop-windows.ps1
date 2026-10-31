@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Safe fallback stop for launcher-owned MailFlow services on Windows.
@@ -32,7 +32,7 @@ $launcherUrl = "http://127.0.0.1:8765"
 try {
     $html = (Invoke-WebRequest -Uri "$launcherUrl/" -UseBasicParsing -TimeoutSec 3).Content
 } catch {
-    Write-Host "Launcher is not running on $launcherUrl — nothing to stop via control API."
+    Write-Host "Launcher is not running on $launcherUrl - nothing to stop via control API."
     Write-Host "If MailFlow was started outside the launcher, stop those windows manually."
     Read-Host "Press Enter to close"
     exit 0
