@@ -1,0 +1,95 @@
+MailFlow — Tools to install (Windows 11 x64)
+============================================
+
+After each install: close Command Prompt, open a new one, then check.
+
+
+--------------------------------------------
+1. Git
+--------------------------------------------
+Install:
+  https://git-scm.com/download/win
+  Run installer → defaults OK
+  Choose: "Git from the command line and also from 3rd-party software"
+
+Check:
+  git --version
+
+OK example:
+  git version 2.47.0.windows.1
+
+
+--------------------------------------------
+2. Python 3.12
+--------------------------------------------
+Install:
+  https://www.python.org/downloads/
+  Download Python 3.12.x (NOT 3.14)
+  Tick: "Add python.exe to PATH"
+  Click Install Now
+
+Check:
+  python --version
+
+OK:
+  Python 3.12.x
+
+Not OK:
+  Python 3.14.x
+  'python' is not recognized
+
+
+--------------------------------------------
+3. Node.js 20+ (includes npm)
+--------------------------------------------
+Install:
+  https://nodejs.org/en/download
+  Download Windows LTS installer (64-bit)
+  Install with defaults
+
+Check:
+  node --version
+  npm --version
+
+OK:
+  v20.x.x  (or v22+)
+  10.x.x   (npm version number)
+
+
+--------------------------------------------
+4. Docker Desktop
+--------------------------------------------
+Install:
+  https://docs.docker.com/desktop/setup/install/windows-install/
+  Install → reboot if asked
+  Open Docker Desktop and wait until status is Running
+
+Check:
+  docker --version
+  docker compose version
+  docker info
+
+OK:
+  Docker version ...
+  Docker Compose version v2...
+  docker info prints details (no connection error)
+
+
+--------------------------------------------
+Quick check (all tools)
+--------------------------------------------
+Paste in a new Command Prompt:
+
+  git --version
+  python --version
+  node --version
+  npm --version
+  docker --version
+  docker compose version
+  docker info
+
+Then run once:
+  Setup-MailFlow-Windows.cmd
+
+Everyday:
+  Start-MailFlow-Windows.cmd

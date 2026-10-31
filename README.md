@@ -24,6 +24,8 @@ Private admin-only application (no public signup). Create administrators with th
 
 Full Windows guide (fresh PC, winget, Git/ZIP, Gmail, auth email): [docs/WINDOWS_LOCAL_SETUP.md](docs/WINDOWS_LOCAL_SETUP.md).
 
+Local updates from GitHub (Check for updates / Update now): [docs/LOCAL_UPDATES.md](docs/LOCAL_UPDATES.md).
+
 **First-time setup** installs dependencies and runs migrations once — not on every Start. Manual equivalent remains below.
 
 ## Development

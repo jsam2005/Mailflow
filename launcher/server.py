@@ -1,6 +1,6 @@
 """Loopback-only MailFlow launcher control service.
 
-Serves launcher.html and fixed allowlisted start/stop/open/status actions.
+Serves launcher.html and fixed allowlisted start/stop/open/status/update actions.
 Never accepts arbitrary shell commands from the browser.
 """
 
@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from launcher.manager import ProcessManager
+from launcher.updater import MailFlowUpdater
 
 LAUNCHER_HOST = "127.0.0.1"
 LAUNCHER_PORT = 8765
@@ -34,8 +35,9 @@ ALLOWED_ORIGINS = frozenset(
 
 
 class LauncherState:
-    def __init__(self, manager: ProcessManager, token: str) -> None:
+    def __init__(self, manager: ProcessManager, updater: MailFlowUpdater, token: str) -> None:
         self.manager = manager
+        self.updater = updater
         self.token = token
         self._action_lock = threading.Lock()
 
@@ -109,8 +111,6 @@ def make_handler(state: LauncherState) -> type[BaseHTTPRequestHandler]:
                 self._reject(403, "Launcher controls are loopback-only.")
                 return False
             origin = self._origin()
-            # Same-origin launcher UI may omit Origin on some GETs; mutating
-            # routes still require the session token below.
             if origin is not None and origin not in ALLOWED_ORIGINS:
                 self._reject(403, "Cross-origin request blocked.")
                 return False
@@ -120,6 +120,11 @@ def make_handler(state: LauncherState) -> type[BaseHTTPRequestHandler]:
                 self._reject(401, "Missing or invalid launcher token.")
                 return False
             return True
+
+        def _status_payload(self) -> dict[str, Any]:
+            payload = {"ok": True, **state.manager.snapshot()}
+            payload["update"] = state.updater.snapshot_update()
+            return payload
 
         def do_OPTIONS(self) -> None:  # noqa: N802
             if not self._client_is_loopback():
@@ -135,15 +140,21 @@ def make_handler(state: LauncherState) -> type[BaseHTTPRequestHandler]:
             if path in {"/", "/launcher.html"}:
                 self._serve_static("launcher.html", inject_token=True)
                 return
-            if path == "/stopped" or path == "/stopped.html":
+            if path in {"/stopped", "/stopped.html"}:
                 self._serve_static("stopped.html", inject_token=True)
                 return
             if path == "/api/status":
-                # Status is readable with token to avoid leaking process info.
                 if not self._authorize_control():
                     return
-                payload = {"ok": True, **state.manager.snapshot()}
-                status, body, ctype = _json_bytes(payload)
+                status, body, ctype = _json_bytes(self._status_payload())
+                self._send(status, body, ctype)
+                return
+            if path == "/api/update/status":
+                if not self._authorize_control():
+                    return
+                status, body, ctype = _json_bytes(
+                    {"ok": True, **state.updater.snapshot_update()}
+                )
                 self._send(status, body, ctype)
                 return
             self._reject(404, "Not found.")
@@ -156,20 +167,33 @@ def make_handler(state: LauncherState) -> type[BaseHTTPRequestHandler]:
             if length > 4096:
                 self._reject(413, "Request body too large.")
                 return
-            if length:
-                self.rfile.read(length)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                body_json = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                body_json = {}
 
             if path == "/api/start":
+                if state.updater.store.is_busy():
+                    self._reject(409, "Update in progress. Start is disabled until it finishes.")
+                    return
                 with state._action_lock:
                     result = state.manager.start(open_browser=True)
-                status, body, ctype = _json_bytes({"ok": result.get("status") != "error", **result})
+                status, body, ctype = _json_bytes(
+                    {"ok": result.get("status") != "error", **result, "update": state.updater.snapshot_update()}
+                )
                 self._send(status, body, ctype)
                 return
             if path == "/api/stop":
+                if state.updater.store.is_busy():
+                    self._reject(409, "Update in progress. Stop is managed by the updater.")
+                    return
                 with state._action_lock:
                     result = state.manager.stop()
                 ok = result.get("status") == "stopped"
-                status, body, ctype = _json_bytes({"ok": ok, **result})
+                status, body, ctype = _json_bytes(
+                    {"ok": ok, **result, "update": state.updater.snapshot_update()}
+                )
                 self._send(status, body, ctype)
                 return
             if path == "/api/open":
@@ -181,7 +205,34 @@ def make_handler(state: LauncherState) -> type[BaseHTTPRequestHandler]:
                 except RuntimeError as exc:
                     self._reject(409, str(exc))
                 return
-            self._reject(404, "Unknown action. Allowlisted: /api/start, /api/stop, /api/open.")
+            if path == "/api/update/check":
+                if state.updater.store.is_busy():
+                    self._reject(409, "Update already in progress.")
+                    return
+                with state._action_lock:
+                    result = state.updater.check_for_updates()
+                status, body, ctype = _json_bytes({**result.to_dict(), "update": state.updater.snapshot_update()})
+                self._send(status, body, ctype)
+                return
+            if path == "/api/update/apply":
+                if state.updater.store.is_busy():
+                    self._reject(409, "Update already in progress.")
+                    return
+                target = body_json.get("commit") if isinstance(body_json, dict) else None
+                # Run apply outside holding the HTTP thread forever? Keep sync for
+                # reliability of progress state; clients poll /api/update/status.
+                # Release action lock around long work by not nesting manager start
+                # conflicts — apply_update uses its own lock file.
+                result = state.updater.apply_update(target_commit=target)
+                code = 200 if result.get("ok") else 500
+                status, body, ctype = _json_bytes(result, code)
+                self._send(status, body, ctype)
+                return
+            self._reject(
+                404,
+                "Unknown action. Allowlisted: /api/start, /api/stop, /api/open, "
+                "/api/update/check, /api/update/apply.",
+            )
 
         def _serve_static(self, name: str, *, inject_token: bool) -> None:
             target = (STATIC_DIR / name).resolve()
@@ -207,18 +258,19 @@ def create_server(
     port: int = LAUNCHER_PORT,
     repo_root: Path | None = None,
     manager: ProcessManager | None = None,
+    updater: MailFlowUpdater | None = None,
     token: str | None = None,
 ) -> tuple[ThreadingHTTPServer, LauncherState]:
     root = repo_root or REPO_ROOT
     session_token = token or secrets.token_urlsafe(32)
-    # Child Vite process reads these for the in-app Exit button.
     import os
 
     os.environ["MAILFLOW_LAUNCHER_TOKEN"] = session_token
     os.environ["MAILFLOW_LAUNCHER_URL"] = f"http://{host}:{port}"
 
     mgr = manager or ProcessManager(root)
-    state = LauncherState(mgr, session_token)
+    upd = updater or MailFlowUpdater(root, mgr)
+    state = LauncherState(mgr, upd, session_token)
     httpd = ThreadingHTTPServer((host, port), make_handler(state))
     return httpd, state
 
@@ -227,17 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="MailFlow local launcher service")
     parser.add_argument("--host", default=LAUNCHER_HOST)
     parser.add_argument("--port", type=int, default=LAUNCHER_PORT)
-    parser.add_argument(
-        "--open",
-        action="store_true",
-        help="Open launcher UI in the default browser",
-    )
-    parser.add_argument(
-        "--repo-root",
-        type=Path,
-        default=REPO_ROOT,
-        help=argparse.SUPPRESS,
-    )
+    parser.add_argument("--open", action="store_true", help="Open launcher UI")
+    parser.add_argument("--repo-root", type=Path, default=REPO_ROOT, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
@@ -262,7 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\nShutting down launcher…")
     finally:
         try:
-            state.manager.stop()
+            if not state.updater.store.is_busy():
+                state.manager.stop()
         except Exception:  # noqa: BLE001
             pass
         httpd.server_close()
@@ -270,7 +314,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    # Allow `python launcher/server.py` without installed package.
     if __package__ is None:
         sys.path.insert(0, str(REPO_ROOT))
         from launcher.server import main as _main

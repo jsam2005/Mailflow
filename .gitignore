@@ -74,10 +74,12 @@ storage/attachments/*
 *.log
 logs/
 
-
 # Local launcher runtime logs (never commit)
 launcher/.runtime/*
 !launcher/.runtime/.gitkeep
+
+# Client update staging, locks, backups (never commit)
+.mailflow/
 
 # Local auth-email outbox (console/file provider artifacts)
 **/storage/auth-email-outbox/*
@@ -94,3 +96,5 @@ docker-compose.override.yml
 .neon
 .neon/
 .venv-vercel-test/
+.vercel
+.vercel-env-upload.tmp

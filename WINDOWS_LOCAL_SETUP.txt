@@ -1,0 +1,235 @@
+MailFlow — Step-by-step local setup on Windows 11 (x64)
+=======================================================
+
+Target: Windows 11, 64-bit PC with no development tools installed yet.
+This runs MailFlow on YOUR computer only (not cloud/production hosting).
+
+A web page alone cannot start the app. Always use the .cmd files below.
+
+
+-------------------------------------------------------
+PART A — Get the project onto the Windows PC
+-------------------------------------------------------
+
+Option 1 — Git clone (recommended)
+----------------------------------
+1. On the Windows PC, open a browser and download Git:
+   https://git-scm.com/download/win
+2. Install Git (default options are fine).
+3. Open PowerShell or Command Prompt and run:
+
+   cd %USERPROFILE%\Documents
+   git clone https://github.com/jsam2005/Mailflow.git
+   cd Mailflow
+
+Option 2 — ZIP download (no Git yet)
+------------------------------------
+1. Open: https://github.com/jsam2005/Mailflow
+2. Click Code → Download ZIP.
+3. Extract the ZIP to a folder such as:
+   C:\Users\YOURNAME\Documents\Mailflow
+4. Open that folder in File Explorer.
+   Paths with spaces (e.g. "Jane Doe") are OK.
+
+
+-------------------------------------------------------
+PART B — Install required software
+-------------------------------------------------------
+
+Detailed install + “how to check” guide:
+  Open file:  TOOLS_TO_INSTALL_WINDOWS.txt
+
+You need ALL of these:
+
+1) Git (optional if you use ZIP, still recommended)
+   https://git-scm.com/download/win
+   Check:  git --version
+
+2) Python 3.12 (do NOT use 3.14)
+   https://www.python.org/downloads/
+   During install: CHECK "Add python.exe to PATH".
+   Check:  python --version     → must show Python 3.12.x
+
+3) Node.js 20 or newer (LTS) — includes npm
+   https://nodejs.org/en/download
+   Check:  node --version       → v20 or higher
+           npm --version
+
+4) Docker Desktop (for PostgreSQL — same database as Mac/Linux)
+   https://docs.docker.com/desktop/setup/install/windows-install/
+   After install: START Docker Desktop and wait until it is running.
+   Windows may ask you to enable WSL2 — follow Docker’s prompts and reboot if asked.
+   Check:  docker --version
+           docker compose version
+           docker info          → must work with Docker Desktop RUNNING
+
+Quick all-in-one check (new Command Prompt):
+
+  git --version
+  python --version
+  node --version
+  npm --version
+  docker --version
+  docker compose version
+  docker info
+
+OR use automatic install (optional)
+-----------------------------------
+If winget works on your PC, after you have the MailFlow folder you can run:
+
+  Setup-MailFlow-Windows.cmd -InstallPrereqs
+
+That tries to install Git, Python 3.12, Node LTS, and Docker via winget.
+Approve any Windows UAC / installer windows.
+Then CLOSE the setup window, open a NEW Command Prompt, check the commands
+above, and run Setup-MailFlow-Windows.cmd again without -InstallPrereqs.
+
+
+-------------------------------------------------------
+PART C — First-time MailFlow setup (do this once)
+-------------------------------------------------------
+
+1. Make sure Docker Desktop is running (whale icon in the system tray).
+2. In File Explorer, open your MailFlow folder.
+3. Double-click:  Setup-MailFlow-Windows.cmd
+4. Wait until it finishes. It will:
+   - Create a Python virtual environment (backend\.venv)
+   - Install backend and frontend packages
+   - Create local .env files with secrets (if missing) — secrets are NOT printed
+   - Start Postgres in Docker
+   - Run database migrations
+5. If it fails, open:
+   launcher\.runtime\setup-windows.log
+   and fix the error, then run Setup-MailFlow-Windows.cmd again (safe to re-run).
+
+Optional admin user (recommended):
+----------------------------------
+After setup, open Command Prompt in the MailFlow folder and run:
+
+  cd backend
+  .\.venv\Scripts\python.exe -m app.scripts.create_admin --email you@example.com --name Admin
+
+It will prompt for a password. Use that email/password to sign in.
+
+
+-------------------------------------------------------
+PART D — Everyday start (every time you use MailFlow)
+-------------------------------------------------------
+
+ONE step only:
+
+1. Double-click:  Start-MailFlow-Windows.cmd
+2. LEAVE THAT WINDOW OPEN.
+
+That single click will:
+  - Start Docker Desktop if it is not already running
+  - Start Postgres
+  - Start MailFlow
+  - Open the app in your browser (http://127.0.0.1:5173/)
+
+Then sign in with your admin account.
+
+(Optional) If you only want the launcher page without auto-start:
+  Start-MailFlow-Windows.cmd -NoAutoStart
+
+
+-------------------------------------------------------
+PART E — Stop MailFlow
+-------------------------------------------------------
+
+Any ONE of these:
+
+- In the MailFlow web app: click "Exit local app" (only visible in launcher mode)
+  → confirm → you get a stopped page with a link back to the launcher
+
+- In the launcher page (http://127.0.0.1:8765/): click Stop MailFlow
+
+- Double-click:  Stop-MailFlow-Windows.cmd
+
+- Or close the Start-MailFlow-Windows.cmd window (Ctrl+C / close)
+
+Stop only affects processes THIS launcher started.
+It does not kill all Python, Node, or Docker on your PC.
+
+
+-------------------------------------------------------
+PART F — What you must configure yourself (not automatic)
+-------------------------------------------------------
+
+Setup creates local secrets and keeps sending/billing OFF by default.
+
+1) Sign-in emails (verification / password reset)
+   Default: AUTH_EMAIL_PROVIDER=console  (messages appear in the API log, NOT your inbox)
+   Or:      AUTH_EMAIL_PROVIDER=file     (saved under a local outbox folder)
+   Real inbox: set in backend\.env (or .env):
+     AUTH_EMAIL_PROVIDER=resend
+     RESEND_API_KEY=your_key
+     AUTH_EMAIL_FROM=you@yourdomain.com
+
+2) Connect Gmail (campaign sending mailbox)
+   In Google Cloud Console create an OAuth Web client.
+   Authorized redirect URI must be exactly:
+     http://localhost:8000/api/v1/email-accounts/google/callback
+   Put in .env:
+     GOOGLE_CLIENT_ID=...
+     GOOGLE_CLIENT_SECRET=...
+     GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/email-accounts/google/callback
+   Then in MailFlow: Email Accounts → Connect Gmail.
+   More detail: docs\GMAIL_SETUP.md
+
+3) Campaign sending
+   Keep CAMPAIGN_SENDING_ENABLED=false until you are ready.
+   To test sends, set:
+     CAMPAIGN_SENDING_ENABLED=true
+     CAMPAIGN_TEST_RECIPIENT_ALLOWLIST=you@example.com
+   Never enable this during setup by accident.
+
+4) Billing
+   Leave billing disabled for local use unless you intentionally configure Stripe test keys.
+
+
+-------------------------------------------------------
+PART G — Quick reference
+-------------------------------------------------------
+
+First-time setup file:   Setup-MailFlow-Windows.cmd
+Everyday start file:     Start-MailFlow-Windows.cmd   (one click)
+Fallback stop file:      Stop-MailFlow-Windows.cmd
+
+Launcher UI:             http://127.0.0.1:8765/
+MailFlow app:            http://127.0.0.1:5173/
+API docs (local):        http://127.0.0.1:8000/docs
+
+Updates:                 In launcher → Check for updates → Update now
+                         Full guide: docs\LOCAL_UPDATES.md
+
+Longer guide:            docs\WINDOWS_LOCAL_SETUP.md
+
+
+-------------------------------------------------------
+PART H — Common problems
+-------------------------------------------------------
+
+"Connection Failed / ERR_CONNECTION_REFUSED" on port 8765
+  → The Start window is closed, or setup was never run.
+  → Double-click Start-MailFlow-Windows.cmd and leave it open.
+
+Port 8000 or 5173 already in use
+  → Another program is using that port. Stop it, or use Open if MailFlow
+    is already running from a previous start.
+
+Postgres / migration errors
+  → Docker Desktop must be running.
+  → DATABASE_URL in .env must use localhost (setup checks this).
+
+Python version wrong
+  → Must be 3.12.x, not 3.14.
+
+winget not found
+  → Install tools manually using the links in Part B,
+    or install "App Installer" from the Microsoft Store.
+
+
+=======================================================
+End of instructions
+=======================================================

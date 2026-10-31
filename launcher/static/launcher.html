@@ -29,9 +29,9 @@
           var(--bg);
       }
       main {
-        max-width: 32rem;
+        max-width: 34rem;
         margin: 0 auto;
-        padding: 3.5rem 1.25rem 2rem;
+        padding: 3rem 1.25rem 2rem;
       }
       h1 {
         margin: 0 0 0.35rem;
@@ -39,7 +39,7 @@
         letter-spacing: -0.03em;
       }
       .lede {
-        margin: 0 0 1.75rem;
+        margin: 0 0 1.5rem;
         color: var(--muted);
         line-height: 1.45;
       }
@@ -48,6 +48,7 @@
         border: 1px solid var(--border);
         border-radius: 1rem;
         padding: 1.25rem;
+        margin-bottom: 1rem;
       }
       .status-row {
         display: flex;
@@ -72,7 +73,7 @@
         background: #a8a29e;
       }
       .dot.running { background: #0f766e; }
-      .dot.starting, .dot.stopping { background: #d97706; }
+      .dot.starting, .dot.stopping, .dot.updating { background: #d97706; }
       .dot.error { background: #b91c1c; }
       .actions {
         display: grid;
@@ -108,6 +109,27 @@
         line-height: 1.4;
         white-space: pre-wrap;
       }
+      .meta {
+        font-size: 0.85rem;
+        color: var(--muted);
+        line-height: 1.45;
+        margin: 0 0 0.75rem;
+      }
+      .meta code {
+        font-size: 0.8rem;
+        word-break: break-all;
+      }
+      .progress {
+        margin-top: 0.75rem;
+        max-height: 9rem;
+        overflow: auto;
+        font-size: 0.78rem;
+        color: var(--muted);
+        white-space: pre-wrap;
+        background: #faf7f2;
+        border-radius: 0.5rem;
+        padding: 0.6rem 0.75rem;
+      }
       .hint {
         margin-top: 1rem;
         color: var(--muted);
@@ -115,16 +137,20 @@
         line-height: 1.4;
       }
       .note {
-        margin-top: 1.5rem;
+        margin-top: 0.5rem;
         font-size: 0.8rem;
         color: var(--muted);
+      }
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.05rem;
       }
     </style>
   </head>
   <body>
     <main>
       <h1>MailFlow</h1>
-      <p class="lede">Local launcher for this Mac. Start the app, open it in your browser, or stop the services this launcher owns.</p>
+      <p class="lede">Local launcher. Start or stop the app, or install updates published to GitHub.</p>
 
       <section class="panel" aria-live="polite">
         <div class="status-row">
@@ -140,13 +166,27 @@
 
         <div id="error" class="error" hidden></div>
         <p class="hint" id="hint">
-          Start launches the API and Vite UI using your existing local setup. It does not install packages or run migrations.
+          Start uses your existing local setup. It does not install packages or run migrations.
+        </p>
+      </section>
+
+      <section class="panel" aria-live="polite">
+        <h2>Updates</h2>
+        <p class="meta" id="update-meta">Installed: — · Available: —</p>
+        <div class="actions">
+          <button type="button" id="btn-check">Check for updates</button>
+          <button type="button" id="btn-update" disabled>Update now</button>
+        </div>
+        <div class="progress" id="update-progress" hidden></div>
+        <p class="hint" id="update-hint">
+          Updates download into a staging folder, back up the database, migrate once, then restart.
+          Your .env, uploads, and encryption keys are preserved.
         </p>
       </section>
 
       <p class="note">
-        First time? macOS: <code>launcher/setup.command</code> — Windows: <code>Setup-MailFlow-Windows.cmd</code>.
-        Everyday: <code>MailFlow.command</code> or <code>Start-MailFlow-Windows.cmd</code>.
+        Docs: <code>docs/LOCAL_UPDATES.md</code>.
+        macOS: <code>MailFlow.command</code> · Windows: <code>Start-MailFlow-Windows.cmd</code>.
       </p>
     </main>
 
@@ -158,17 +198,26 @@
       const statusDot = document.getElementById("status-dot");
       const errorEl = document.getElementById("error");
       const hintEl = document.getElementById("hint");
+      const updateMeta = document.getElementById("update-meta");
+      const updateHint = document.getElementById("update-hint");
+      const updateProgress = document.getElementById("update-progress");
       const btnStart = document.getElementById("btn-start");
       const btnOpen = document.getElementById("btn-open");
       const btnStop = document.getElementById("btn-stop");
+      const btnCheck = document.getElementById("btn-check");
+      const btnUpdate = document.getElementById("btn-update");
 
-      async function api(path, method = "GET") {
+      let latestAvailableCommit = null;
+      let updateAvailable = false;
+
+      async function api(path, method = "GET", body) {
         const res = await fetch(ORIGIN + path, {
           method,
           headers: {
             Authorization: "Bearer " + TOKEN,
             "Content-Type": "application/json",
           },
+          body: body ? JSON.stringify(body) : undefined,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -178,13 +227,42 @@
         return data;
       }
 
+      function renderUpdate(update) {
+        if (!update) return;
+        const installed = (update.installed && (update.installed.short || update.installed.commit)) || "unknown";
+        const available = update.target_short || "—";
+        const ref = update.release_ref || "main";
+        updateMeta.innerHTML =
+          "Installed: <code>" + installed + "</code> · Available: <code>" + available +
+          "</code> · Ref: <code>" + ref + "</code>";
+        if (update.progress && update.progress.length) {
+          updateProgress.hidden = false;
+          updateProgress.textContent = update.progress.join("\n");
+        }
+        if (update.error) {
+          updateHint.textContent = update.error;
+        } else if (update.message) {
+          updateHint.textContent = update.message;
+        }
+        const busy = !!update.busy;
+        btnUpdate.disabled = busy || !updateAvailable;
+        btnCheck.disabled = busy;
+        return busy;
+      }
+
       function render(data) {
-        const status = data.status || "stopped";
+        const update = data.update || {};
+        const updating = renderUpdate(update);
+        let status = data.status || "stopped";
+        if (updating) status = "updating";
         statusLabel.textContent = status;
         statusDot.className = "dot " + status;
-        if (data.error) {
+
+        if (data.error && !updating) {
           errorEl.hidden = false;
           errorEl.textContent = data.error;
+          errorEl.style.background = "#fef2f2";
+          errorEl.style.color = "var(--danger)";
         } else if (data.notice) {
           errorEl.hidden = false;
           errorEl.textContent = data.notice;
@@ -193,31 +271,37 @@
         } else {
           errorEl.hidden = true;
           errorEl.textContent = "";
-          errorEl.style.background = "";
-          errorEl.style.color = "";
         }
-        const busy = status === "starting" || status === "stopping";
-        btnStart.disabled = busy || status === "running";
-        btnOpen.disabled = status !== "running";
-        btnStop.disabled = busy || status === "stopped" || data.owned === false;
-        if (data.owned === false && status === "running") {
+
+        const busy = status === "starting" || status === "stopping" || updating;
+        btnStart.disabled = busy || status === "running" || status === "updating";
+        btnOpen.disabled = status !== "running" || updating;
+        btnStop.disabled = busy || status === "stopped" || data.owned === false || updating;
+
+        if (updating) {
+          hintEl.textContent = "Update in progress — Start/Stop are disabled.";
+        } else if (data.owned === false && status === "running") {
           hintEl.textContent =
-            "MailFlow is running outside this launcher. Open works; Stop is disabled so unrelated processes stay untouched.";
+            "MailFlow is running outside this launcher. Open works; Stop is disabled.";
         } else if (status === "running") {
           hintEl.textContent = "MailFlow is ready at " + (data.frontend_url || "http://127.0.0.1:5173");
-        } else if (status === "starting") {
-          hintEl.textContent = "Starting backend and frontend…";
-        } else if (status === "stopping") {
-          hintEl.textContent = "Stopping launcher-owned processes…";
         } else {
           hintEl.textContent =
-            "Start launches the API and Vite UI using your existing local setup. It does not install packages or run migrations.";
+            "Start uses your existing local setup. It does not install packages or run migrations.";
         }
       }
 
       async function refresh() {
         try {
           const data = await api("/api/status");
+          if (data.update && data.update.target_commit && data.update.phase === "checked") {
+            latestAvailableCommit = data.update.target_commit;
+            updateAvailable = true;
+          }
+          if (data.update && data.update.phase === "no_update") {
+            updateAvailable = false;
+            latestAvailableCommit = data.update.target_commit || null;
+          }
           render(data);
         } catch (err) {
           errorEl.hidden = false;
@@ -225,14 +309,21 @@
         }
       }
 
-      async function run(path) {
+      async function run(path, body) {
         btnStart.disabled = true;
         btnOpen.disabled = true;
         btnStop.disabled = true;
+        btnCheck.disabled = true;
+        btnUpdate.disabled = true;
         try {
-          const data = await api(path, "POST");
-          render(data);
-          if (data.error && data.status === "error") {
+          const data = await api(path, "POST", body);
+          if (path === "/api/update/check") {
+            updateAvailable = !!data.update_available;
+            latestAvailableCommit = data.available_commit || null;
+          }
+          if (data.update) render({ ...data, status: data.status || "stopped", update: data.update });
+          else await refresh();
+          if (data.error) {
             errorEl.hidden = false;
             errorEl.textContent = data.error;
           }
@@ -248,6 +339,23 @@
       btnStop.addEventListener("click", () => {
         if (!confirm("Stop MailFlow? Active local work may be interrupted.")) return;
         run("/api/stop");
+      });
+      btnCheck.addEventListener("click", () => run("/api/update/check"));
+      btnUpdate.addEventListener("click", () => {
+        if (!latestAvailableCommit) {
+          alert("Check for updates first.");
+          return;
+        }
+        if (
+          !confirm(
+            "Install update " +
+              latestAvailableCommit.slice(0, 7) +
+              "? MailFlow will stop briefly, back up the database, migrate, and restart. .env and uploads are preserved."
+          )
+        ) {
+          return;
+        }
+        run("/api/update/apply", { commit: latestAvailableCommit });
       });
 
       refresh();
