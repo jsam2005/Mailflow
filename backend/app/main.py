@@ -1,14 +1,18 @@
 """MailFlow FastAPI application entrypoint."""
 
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import (
     auth,
@@ -38,10 +42,26 @@ from app.workers.scheduler import shutdown_scheduler, start_scheduler
 logger = get_logger(__name__)
 
 
+def _desktop_mode() -> bool:
+    return os.environ.get("MAILFLOW_DESKTOP") == "1"
+
+
+def _ensure_desktop_schema() -> None:
+    if not _desktop_mode():
+        return
+    import app.models  # noqa: F401
+    from app.db.base import Base
+    from app.db.session import engine
+
+    Base.metadata.create_all(bind=engine)
+    logger.info("desktop.schema_ready")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(settings.environment)
+    _ensure_desktop_schema()
     logger.info(
         "app.startup",
         app=settings.app_name,
@@ -178,7 +198,42 @@ def create_app() -> FastAPI:
             },
         )
 
+    _mount_desktop_frontend(application)
     return application
+
+
+def _spa_fallback(path: str) -> bool:
+    normalized = path.lstrip("/")
+    if normalized.startswith("api/") or normalized in {"api", "docs", "redoc", "openapi.json", "health"}:
+        return False
+    return True
+
+
+def _mount_desktop_frontend(application: FastAPI) -> None:
+    if not _desktop_mode():
+        return
+    dist = Path(os.environ.get("MAILFLOW_FRONTEND_DIST", "")).resolve()
+    if not (dist / "index.html").is_file():
+        logger.warning("desktop.frontend_missing", path=str(dist))
+        return
+
+    class SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):  # type: ignore[override]
+            try:
+                response = await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404 and _spa_fallback(path):
+                    return await super().get_response("index.html", scope)
+                raise
+            if getattr(response, "status_code", None) == 404 and _spa_fallback(path):
+                return await super().get_response("index.html", scope)
+            return response
+
+    application.mount(
+        "/",
+        SPAStaticFiles(directory=str(dist), html=True),
+        name="desktop-frontend",
+    )
 
 
 app = create_app()

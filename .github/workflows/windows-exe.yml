@@ -1,0 +1,53 @@
+name: Windows exe
+
+# Builds MailFlow.exe (one folder, local SQLite storage) on a Windows runner.
+# Run it from GitHub: Actions -> Windows exe -> Run workflow.
+# Download the MailFlow-windows zip from the run's Artifacts section.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build MailFlow.exe
+        shell: pwsh
+        run: ./packaging/windows/build.ps1
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "mailflow-smoke"
+          $env:BROWSER = "none"
+          $p = Start-Process -FilePath "packaging\windows\dist\MailFlow\MailFlow.exe" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/health
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { throw "MailFlow.exe did not answer /health" }
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA "MailFlow\mailflow.db"))) {
+            throw "SQLite database was not created"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MailFlow-windows
+          path: packaging/windows/dist/MailFlow
+          retention-days: 30

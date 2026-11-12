@@ -13,6 +13,14 @@ Private admin-only application (no public signup). Create administrators with th
 
 ---
 
+## Windows desktop app (MailFlow.exe)
+
+A single-folder Windows app with local storage (SQLite database + files in
+`%LOCALAPPDATA%\MailFlow`). No Docker, PostgreSQL, or Node.js needed on the PC that runs it.
+Build and usage: [packaging/windows/README.md](packaging/windows/README.md).
+
+---
+
 ## Local launcher
 
 `launcher.html` alone cannot run shell commands (`file://` has no terminal access). A small loopback control service on `127.0.0.1:8765` owns Start / Open / Stop. In-app **Exit local app** appears only when Vite was started by that launcher (not in hosted builds).
