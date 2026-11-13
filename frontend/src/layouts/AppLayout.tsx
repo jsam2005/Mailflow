@@ -34,15 +34,17 @@ export function AppLayout() {
               <p className="text-xs text-ink-subtle">{user?.email}</p>
             </div>
             <ExitLocalAppButton />
-            <button
-              type="button"
-              onClick={logout}
-              className="btn-secondary gap-2 px-3 py-2"
-              title="Sign out"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
+            {import.meta.env.VITE_MAILFLOW_DESKTOP !== "1" && (
+              <button
+                type="button"
+                onClick={logout}
+                className="btn-secondary gap-2 px-3 py-2"
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Sign out</span>
+              </button>
+            )}
           </div>
         </header>
 

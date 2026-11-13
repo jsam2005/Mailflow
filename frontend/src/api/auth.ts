@@ -10,3 +10,11 @@ export async function fetchCurrentUser(): Promise<User> {
   const { data } = await apiClient.get<User>("/api/v1/auth/me");
   return data;
 }
+
+/** Desktop exe only: open a session for the local admin without a login form. */
+export async function desktopSession(): Promise<TokenResponse> {
+  const { data } = await apiClient.post<TokenResponse>("/api/v1/auth/desktop-session", null, {
+    headers: { "X-MailFlow-Desktop": "1" },
+  });
+  return data;
+}

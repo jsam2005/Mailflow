@@ -65,10 +65,9 @@ def main() -> None:
     print(f"Open {origin}/")
     if first_run:
         print("")
-        print("First run: sign in with")
+        print("MailFlow opens signed in automatically. If you ever need the login:")
         print(f"  Email:    {os.environ.get('ADMIN_EMAIL', '')}")
-        print(f"  Password: {os.environ.get('ADMIN_PASSWORD', '')}")
-        print("(Also saved in app.env in the data folder.)")
+        print("  Password: ADMIN_PASSWORD in app.env")
         print("")
     print("Leave this window open. Close it to stop MailFlow.")
 

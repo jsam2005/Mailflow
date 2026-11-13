@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { fetchCurrentUser, login as loginRequest } from "@/api/auth";
+import { desktopSession, fetchCurrentUser, login as loginRequest } from "@/api/auth";
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/api/client";
 import type { User } from "@/types/auth";
 
@@ -23,6 +23,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/** Set by packaging/windows/build.ps1 so the exe opens without a login screen. */
+const IS_DESKTOP_BUILD = import.meta.env.VITE_MAILFLOW_DESKTOP === "1";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
@@ -30,12 +33,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = getStoredToken();
+    let cancelled = false;
+
     if (!token) {
-      setIsLoading(false);
-      return;
+      if (!IS_DESKTOP_BUILD) {
+        setIsLoading(false);
+        return;
+      }
+      desktopSession()
+        .then((result) => {
+          setStoredToken(result.access_token);
+          if (!cancelled) setUser(result.user);
+        })
+        .catch(() => {
+          if (!cancelled) setUser(null);
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
     fetchCurrentUser()
       .then((current) => {
         if (!cancelled) setUser(current);

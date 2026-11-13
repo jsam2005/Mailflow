@@ -47,7 +47,10 @@ if (Test-Path "package-lock.json") {
 } else {
     npm install
 }
+# Desktop build: open straight into the app, no login screen.
+$env:VITE_MAILFLOW_DESKTOP = "1"
 npm run build
+Remove-Item Env:VITE_MAILFLOW_DESKTOP
 Pop-Location
 
 $DistPath = Join-Path $SpecDir "dist"
